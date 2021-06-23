@@ -52,7 +52,7 @@ args = sys.argv
 argn = len(args)
 
 if argn==0:
-    print("Usage: train_10step.py [ndata] [batch_size] [init]")
+    print("Usage: train_10step.py [ndata] [batch_size] [init] [checkpoint]")
     exit()
 
 
@@ -62,10 +62,16 @@ batch_size_t = int(args[2]) if argn>2 else ndata_t * nf
 
 init = args[3]=="True" if argn>3 else False
 
+cp = int(args[4]) if argn>4 else 1
 
 #path_net = "./train_1step_ens200_bsize4000.pth"
 #path_net = "./train_1step_ens400_bsize4000.pth"
-path_net = f"./train_1step_ens{ndata_t}_bsize{ndata_t*10}.pth"
+
+fname_pre = f"train_10step_ens{ndata_t}_bsize{batch_size_t}_init{init}"
+if cp > 1:
+    path_net = fname_pre + f"_{cp-1}.pth"
+else:
+    path_net = f"./train_1step_ens{ndata_t}_bsize{ndata_t*10}.pth"
 
 
 
@@ -76,6 +82,12 @@ print(f"# of batch_size is {batch_size_t}")
 print(f"init is {init}")
 
 
+fname = fname_pre + f"_{cp}"
+def save(fname, state, loss_t, loss_e):
+    path = fname+".pth"
+    torch.save(state, path)
+
+    np.savez(fname, loss_t, loss_e)
 
 
 
@@ -88,8 +100,6 @@ max_epoch = 50000
 #max_epoch = 500
 #max_epoch = 1
 
-#ndata_t = 200
-#batch_size_t = 200
 
 
 
@@ -175,21 +185,23 @@ if double:
 criterion = nn.MSELoss()
 
 if init:
-    lr = 0.001 * batch_size_t / 1000
-else:
     lr = 0.01 * batch_size_t / 1000
+else:
+    lr = 0.001 * batch_size_t / 1000
 
 optimizer = optim.Adam(net.parameters(), lr=lr)
 #optimizer = optim.Adam(net.parameters(), lr=0.01)
 #optimizer = optim.Adam(net.parameters(), lr=0.0001)
-#optimizer.load_state_dict(stat['opt'])
+if cp > 1:
+    optimizer.load_state_dict(stat['opt'])
 
 #scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.99)
 scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.9)
-
+if cp > 1:
+    scheduler.load_state_dict(stat['sch'])
 
 nint = 10
-nint2 = 50
+nint2 = 200
 #nint2 = 500
 
 print("start trainning")
@@ -197,14 +209,30 @@ print("start trainning")
 start = time.time()
 
 
-loss_t = np.zeros(int(max_epoch/nint+1))
-loss_e = np.zeros(int(max_epoch/nint+1))
+if cp > 1:
+    path = fname_pre + f"_{cp-1}.npz"
+    npz = np.load(path)
+    loss_t = npz['arr_0']
+    loss_e = npz['arr_1']
+else:
+    loss_t = np.zeros(int(max_epoch/nint+1))
+    loss_e = np.zeros(int(max_epoch/nint+1))
+
+
 large = 999.9e5
-min = [large, 0, 0]
+if (cp > 1) and ('min' in stat.keys()):
+    min = stat['min']
+else:
+    min = [large, 0, 0]
 min_tmp = large
 unchange = 0
 
-for epoch in range(max_epoch):
+if (cp > 1) and ('epoch' in stat.keys()):
+    epoch_min = stat['epoch'] + 1
+else:
+    epoch_min = 0
+
+for epoch in range(epoch_min, max_epoch):
 
     if init:
         net.train()
@@ -263,28 +291,42 @@ for epoch in range(max_epoch):
                 'net': net.state_dict(),
                 'opt': optimizer.state_dict(),
                 'sch': scheduler.state_dict(),
+                'epoch': epoch,
+                'min': min,
+                'elapse': time.time() - start,
             }
+            if (epoch+1)%(nint*10)==0:
+                save(fname, state, loss_t, loss_e)
             unchange = 0
 
         if l_e < min_tmp:
             min_tmp = l_e
 
-        if (epoch+1)%(math.ceil(max_epoch/nint2)) == 0 or epoch==0:
+        if (epoch+1)%nint2 == 0 or epoch == 0:
             print('[%d] lr: %.2e, training: %.6f, eval: %.6f (%.6f, %.6f)' % (epoch + 1, scheduler.get_last_lr()[0], l_t, l_e, min_tmp, min[0]))
             if min_tmp > min[0]:
                 unchange += 1
-            if ( epoch > 5000 and min_tmp > min[0] * 1.5 ) or unchange >= 10:
+            if ( epoch > 10000 and min_tmp > min[0] * 1.5 ) or unchange >= 50:
                 break
             min_tmp = large
 
 
+state = {
+    'net': net.state_dict(),
+    'opt': optimizer.state_dict(),
+    'sch': scheduler.state_dict(),
+    'epoch': epoch,
+    'min': min,
+    'elapse': time.time() - start,
+}
+
+if (cp > 1) and ('elapse' in stat.keys()):
+    elapse = stat['elapse']
+else:
+    elapse = 0
+
 print("minimam loss: %.6f, %.6f, %d"%(min[0], min[1], min[2]))
-print(f"elapsed time: %d sec"%(time.time() - start))
+print(f"elapsed time: %d sec"%(time.time() - start + elapse))
 
 
-fname = f"train_ens{ndata_t}_bsize{batch_size_t}_init{init}"
-
-path = fname+".pth"
-torch.save(state, path)
-
-np.savez(fname, loss_t, loss_e)
+save(fname+"_fin", state, loss_t, loss_e)
