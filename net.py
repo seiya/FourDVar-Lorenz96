@@ -19,10 +19,9 @@ class Periodic(nn.Module):
        return y
 
 
-
 class Net(nn.Module):
 
-    def __init__(self, ne: int, nitr: int, device=None, p=0.5):
+    def __init__(self, ne: int, nitr: int, device=None, rank_size=1, p=0.5):
         super(Net, self).__init__()
 
         self.nitr = nitr
@@ -40,51 +39,58 @@ class Net(nn.Module):
         block22 = [None] * nitr
         block21 = [None] * nitr
 
+        if rank_size > 1:
+            batchnorm = nn.SyncBatchNorm
+            #print("SyncBatchNorm")
+        else:
+            batchnorm = nn.BatchNorm1d
+            #print("normal BatchNorm")
+
         for n in range(nitr):
 
             # L=40
             block12[n] = nn.Sequential(
                 Periodic(device),
                 nn.Conv1d(4, 8, kernel_size=3, bias=False),
-                nn.BatchNorm1d(8))
+                batchnorm(8))
             # L=20
             block13[n] = nn.Sequential(
                 nn.ReLU(inplace=True),
                 Periodic(device),
                 nn.Conv1d(8, 8, kernel_size=3, bias=False),
-                nn.BatchNorm1d(8),
+                batchnorm(8),
                 nn.ReLU(inplace=True),
                 Periodic(device),
                 nn.Conv1d(8, 16, kernel_size=3, bias=False),
-                nn.BatchNorm1d(16))
+                batchnorm(16))
             # L=10
             block14[n] = nn.Sequential(
                 nn.ReLU(inplace=True),
                 Periodic(device),
                 nn.Conv1d(16, 16, kernel_size=3, bias=False),
-                nn.BatchNorm1d(16),
+                batchnorm(16),
                 nn.ReLU(inplace=True),
                 Periodic(device),
                 nn.Conv1d(16, 16, kernel_size=3, bias=False),
-                nn.BatchNorm1d(16),
+                batchnorm(16),
                 nn.ReLU(inplace=True),
                 Periodic(device),
                 nn.Conv1d(16, 32, kernel_size=3, bias=False),
-                nn.BatchNorm1d(32))
+                batchnorm(32))
             # L=5
             block5[n] = nn.Sequential(
                 nn.ReLU(inplace=True),
                 Periodic(device),
                 nn.Conv1d(32, 32, kernel_size=3, bias=False),
-                nn.BatchNorm1d(32),
+                batchnorm(32),
                 nn.ReLU(inplace=True),
                 Periodic(device),
                 nn.Conv1d(32, 32, kernel_size=3, bias=False),
-                nn.BatchNorm1d(32),
+                batchnorm(32),
                 nn.ReLU(inplace=True),
                 Periodic(device),
                 nn.Conv1d(32, 32, kernel_size=3, bias=False),
-                nn.BatchNorm1d(32),
+                batchnorm(32),
                 nn.ReLU(inplace=True),
                 Periodic(device),
                 nn.Conv1d(32, 32, kernel_size=3, bias=False))
@@ -93,36 +99,36 @@ class Net(nn.Module):
                 nn.ReLU(inplace=True),
                 Periodic(device),
                 nn.Conv1d(32, 16, kernel_size=3, bias=False),
-                nn.BatchNorm1d(16),
+                batchnorm(16),
                 nn.ReLU(inplace=True),
                 Periodic(device),
                 nn.Conv1d(16, 16, kernel_size=3, bias=False),
-                nn.BatchNorm1d(16),
+                batchnorm(16),
                 nn.ReLU(inplace=True),
                 Periodic(device),
                 nn.Conv1d(16, 16, kernel_size=3, bias=False),
-                nn.BatchNorm1d(16))
+                batchnorm(16))
             # L=20
             block23[n] = nn.Sequential(
                 nn.ReLU(inplace=True),
                 Periodic(device),
                 nn.Conv1d(16, 8, kernel_size=3, bias=False),
-                nn.BatchNorm1d(8),
+                batchnorm(8),
                 nn.ReLU(inplace=True),
                 Periodic(device),
                 nn.Conv1d(8, 8, kernel_size=3, bias=False),
-                nn.BatchNorm1d(8))
+                batchnorm(8))
             # L=40
             block22[n] = nn.Sequential(
                 nn.ReLU(inplace=True),
                 Periodic(device),
                 nn.Conv1d(8, 4, kernel_size=3, bias=False),
-                nn.BatchNorm1d(4))
+                batchnorm(4))
 
         # L=40
         block11 = nn.Sequential(
             nn.Conv1d(1,4, kernel_size=1, bias=False),
-            nn.BatchNorm1d(4),
+            batchnorm(4),
             nn.ReLU(inplace=True))
         # L=40
         block21 = nn.Sequential(

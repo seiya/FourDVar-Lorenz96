@@ -170,9 +170,9 @@ for epoch in range(max_epoch):
 
     net.train()
 
-    optimizer.zero_grad()
     running_loss_t = 0.0
     for data in loader_t:
+        optimizer.zero_grad()
         if device:
             data = [data[0].to(device), data[1].to(device)]
         out = net(data[0])
