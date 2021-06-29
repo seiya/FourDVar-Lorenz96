@@ -21,7 +21,8 @@ import sys
 args = sys.argv
 
 
-path = "./train_1step_ens100_bsize1000.pth" if len(args)==1 else args[1]
+path = "./train_1step_ens100_bsize1000" if len(args)==1 else args[1]
+path = path + ".pth"
 
 
 
@@ -94,34 +95,37 @@ for n in range(200):
 
 
 
+error = np.empty([nobs,ndata])
+error2 = np.empty([nobs,ndata])
+xall = np.empty([nobs,ndata,k])
 
-error = np.empty([ndata,nobs])
-error2 = np.empty([ndata,nobs])
 for m in range(ndata):
     x = x0 + np.random.randn(k) * sigma
     # spinup
     for n in range(100):
         x = model.forward(x)
 
-    error[m,0] = 0.0
-    error2[m,0] = ( ( x - xa[0,:] )**2 ).mean()
-
-    x_p = x
-    x_m = torch.from_numpy(x.astype(np.float32)).reshape(1,k)
+    xall[0,m,:] = x
+    error2[0,m] = ( ( x - xa[0,:] )**2 ).mean()
     for n in range(nt):
-        x_p = model.forward(x_p)
+        x = model.forward(x)
         if (n+1)%int_obs == 0:
             no = (n+1)//int_obs
-            with torch.no_grad():
-                x_m = net(x_m)
-            tmp = x_m.detach().numpy()[0,:]
-            error[m,no] = ( ( tmp - x_p )**2 ).mean()
-            error2[m,no] = ( ( x_p - xa[no,:] )**2 ).mean()
+            xall[no,m,:] = x
+            error2[no,m] = ( ( x - xa[no,:] )**2 ).mean()
+
+error[0,:] = 0.0
+x_m = torch.from_numpy(xall[0,:,:].astype(np.float32))
+for n in range(nobs-1):
+    with torch.no_grad():
+        x_m = net(x_m)
+    tmp = x_m.detach().numpy()
+    error[n+1,:] = ( ( tmp - xall[n+1,:,:] )**2 ).mean(axis=1)
 
 
 
-error = error.mean(axis=0)
-error2 = error2.mean(axis=0)
+error = error.mean(axis=1)
+error2 = error2.mean(axis=1)
 
 error2 = error2 * error[1] / error2[0]
 

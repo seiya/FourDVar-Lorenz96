@@ -12,9 +12,12 @@ import time
 import math
 import os
 import random
+import argparse
 
 import numpy as np
 
+
+torch.manual_seed(0)
 
 
 class DataSet:
@@ -57,16 +60,11 @@ def average_loss(loss, size):
 
 
 
-def training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e, batch_size_t, init, cp, double, debug):
+def training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e, batch_size_t, init, cp, double, debug, fix):
 
 
     if debug:
         print(myrank, "start training", flush=True)
-
-    np.random.seed(0)
-    torch.manual_seed(0)
-
-
 
     nf = nobs2 - nobs + 1
 
@@ -107,7 +105,10 @@ def training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e
     max_norm = 0.01
     max_grad_norm = 0.01
 
-    max_epoch = 50000
+    if debug:
+        max_epoch = 10
+    else:
+        max_epoch = 50000
     #max_epoch = 1000
     #max_epoch = 500
     #max_epoch = 1
@@ -131,10 +132,11 @@ def training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e
     stat = torch.load(path_net)
 
 
-    nint = 10
     if debug:
-        nint2 = 10
+        nint = 1
+        nint2 = 1
     else:
+        nint = 10
         nint2 = 500
         #nint2 = 1000
 
@@ -201,7 +203,8 @@ def training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e
     if cp > 1:
         scheduler.load_state_dict(stat['sch'])
 
-    print("start training")
+    if myrank==0:
+        print("start training", flush=True)
 
     start = time.time()
 
@@ -214,6 +217,11 @@ def training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e
         if init:
             net.train()
             net.drop = True
+        elif fix:
+#            net.train()
+#            net.drop = False
+            net.eval()
+            net.drop = True
         else:
             net.eval()
             net.drop = False
@@ -221,8 +229,8 @@ def training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e
         running_loss_t = 0.0
         for data in loader_t:
 
-            if debug and myrank==0:
-                print("forward", epoch, flush=True)
+            #if debug and myrank==0:
+            #    print("forward", epoch, flush=True)
 
             optimizer.zero_grad()
             if device:
@@ -238,27 +246,28 @@ def training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e
                 norm = criterion(out, target)
                 loss += norm
                 norm = norm.item()
-                #print(n, norm.item())
+                #if debug:
+                #    print(epoch, n, norm)
                 if norm >= max_norm:
                     if ( epoch > 10000 or debug ) and lmsg:
-                        print("reducing norm", myrank, n, norm, max_norm)
+                        print("reducing norm", myrank, n, norm, max_norm, flush=True)
                         lmsg = False
                     out = target + ( out - target ) * ( max_norm / norm )
 
-            if debug and myrank==0:
-                print("backward", epoch, flush=True)
+            #if debug and myrank==0:
+            #    print("backward", epoch, flush=True)
 
             loss.backward()
             if rank_size > 1:
-                if debug and myrank==0:
-                    print("all reduce", epoch, flush=True)
+                #if debug and myrank==0:
+                #    print("all reduce", epoch, flush=True)
                 if not init:
                     average_gradients(net, rank_size)
                 #print(epoch, myrank, loss.item())
                 loss = average_loss(loss, rank_size)
 
-            if debug and myrank==0:
-                print("optimizer", epoch, flush=True)
+            #if debug and myrank==0:
+            #    print("optimizer", epoch, flush=True)
 
             nn.utils.clip_grad_norm_(net.parameters(), max_grad_norm)
             optimizer.step()
@@ -273,8 +282,8 @@ def training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e
             net.eval()
             net.drop = False
 
-            if debug and myrank==0:
-                print("eval", epoch, flush=True)
+            #if debug and myrank==0:
+            #    print("eval", epoch, flush=True)
 
             with torch.no_grad():
                 running_loss_e = 0.0
@@ -285,7 +294,10 @@ def training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e
                     out = data[:,0,:]
                     for n in range(nobs-1):
                         out = net(out)
-                        loss += criterion(out, data[:,n+1,:])
+                        norm = criterion(out, data[:,n+1,:])
+                        loss += norm
+                        #if debug:
+                        #    print(epoch, n, norm.item())
                     running_loss_e += loss.item()
 
             if rank_size > 1:
@@ -309,8 +321,7 @@ def training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e
                         'min': min,
                         'elapse': time.time() - start,
                     }
-                    if (epoch+1)%(nint*10)==0:
-                        save(fname, state, loss_t, loss_e)
+                    save(fname, state, loss_t, loss_e)
 
             if (epoch+1)%(max_epoch/10) == 0 and myrank==0:
                 st = {
@@ -331,7 +342,7 @@ def training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e
                     print('[%d] lr: %.2e, training: %.6f, eval: %.6f (%.6f, %.6f)' % (epoch + 1, scheduler.get_last_lr()[0], l_t, l_e, min_tmp, min[0]), flush=True)
                 if min_tmp > min[0]:
                     unchange += 1
-                if ( epoch > 10000 and min_tmp > min[0] * 1.5 ) or unchange >= 40:
+                if ( epoch > 10000 and min_tmp > min[0] * 1.5 ) or unchange >= 20:
                     break
                 min_tmp = large
 
@@ -361,7 +372,7 @@ def training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e
 
 
 
-def init_process(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e, batch_size_t, init, cp, double, debug):
+def init_process(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e, batch_size_t, init, cp, double, debug, fix):
     os.environ["MASTER_ADDR"] = "127.0.0.1"
     port = batch_size_t + ndata_t + 10000
     if init:
@@ -372,7 +383,7 @@ def init_process(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, nda
     #backend = "gloo"
     backend = "nccl"
     dist.init_process_group(backend, rank=myrank, world_size=rank_size)
-    training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e, batch_size_t, init, cp, double, debug)
+    training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e, batch_size_t, init, cp, double, debug, fix)
     dist.destroy_process_group()
 
 
@@ -380,16 +391,33 @@ def init_process(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, nda
 if __name__ == "__main__":
 
 
-    args = sys.argv
-    argn = len(args)
-    if argn==0:
-        print("Usage: train_10step.py [ndata] [batch_size] [init] [checkpoint] [-d]")
-        exit()
-    ndata_t = int(args[1]) if argn>1 else 100
-    batch_size_t = int(args[2]) if argn>2 else ndata_t * nf
-    init = args[3]=="True" if argn>3 else False
-    cp = int(args[4]) if argn>4 else 1
-    debug = args[5]=="-d" if argn>5 else False
+    parser = argparse.ArgumentParser()
+    parser.add_argument("ndata", type=int)
+    parser.add_argument("batch_size", type=int)
+    parser.add_argument("init")
+    parser.add_argument("--checkpoint", type=int, default=1)
+    parser.add_argument("-d", "--debug", action="store_true")
+    parser.add_argument("-f", "--fix", action="store_true")
+    args = parser.parse_args()
+    ndata_t = args.ndata
+    batch_size_t = args.batch_size
+    init = args.init == "True"
+    cp = args.checkpoint
+    debug = args.debug
+    fix = args.fix
+
+
+
+#    args = sys.argv
+#    argn = len(args)
+#    if argn==0:
+#        print("Usage: train_10step.py [ndata] [batch_size] [init] [checkpoint] [-d]")
+#        exit()
+#    ndata_t = int(args[1]) if argn>1 else 100
+#    batch_size_t = int(args[2]) if argn>2 else ndata_t * nf
+#    init = args[3]=="True" if argn>3 else False
+#    cp = int(args[4]) if argn>4 else 1
+#    debug = args[5]=="-d" if argn>5 else False
 
 
 
@@ -412,6 +440,7 @@ if __name__ == "__main__":
 
 
 
+    np.random.seed(0)
 
     import lorenz96
     k = 40
@@ -419,6 +448,7 @@ if __name__ == "__main__":
     dt = 0.01
 
     sigma = 1e-1
+
 
     model = lorenz96.Lorenz96(k, f, dt)
     x0 = model.init(f, 0.01)
@@ -467,7 +497,7 @@ if __name__ == "__main__":
     if rank_size == 1:
         data_t = DataSet(data_t, ndata_t, nobs, nobs2, k)
         data_e = DataSet(data_e, ndata_e, nobs, nobs2, k)
-        training(0, 1, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e, batch_size_t, init, cp, double, debug)
+        training(0, 1, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e, batch_size_t, init, cp, double, debug, fix)
 
     else:
 
@@ -493,7 +523,7 @@ if __name__ == "__main__":
             data_ts = DataSet(data_t[lt*myrank:lt*(myrank+1)], lt, nobs, nobs2, k)
             data_es = DataSet(data_e[le*myrank:le*(myrank+1)], le, nobs, nobs2, k)
 
-            p = mp.Process(target=init_process, args=(myrank, rank_size, k, nobs, nobs2, data_ts, data_es, ndata_t, ndata_e, batch_size_t, init, cp, double, debug))
+            p = mp.Process(target=init_process, args=(myrank, rank_size, k, nobs, nobs2, data_ts, data_es, ndata_t, ndata_e, batch_size_t, init, cp, double, debug, fix))
             p.start()
             processes.append(p)
 

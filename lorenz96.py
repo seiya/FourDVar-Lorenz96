@@ -16,8 +16,13 @@ class Lorenz96:
         self.idxp2 = tmp
 
 #    def init(self, const, sigma, nspin = 100):
-    def init(self, const, sigma, nspin = 5000):
+    def init(self, const, sigma, nspin = 5000, seed=None):
+        if seed:
+            st = np.random.get_state()
+            np.random.seed(seed)
         x = np.random.randn(self.k) * sigma + const
+        if seed:
+            np.random.set_state(st)
         for n in range(nspin):
             x = self.forward(x)
         return x
