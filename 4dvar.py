@@ -12,6 +12,7 @@ import torch.optim as optim
 import net
 
 import sys
+import os
 import math
 
 
@@ -24,6 +25,14 @@ lint = int(args[3]) if argn>3 else 10
 lr = float(args[4]) if argn>4 else 0.0001
 cuda = int(args[5]) if argn>5 else None
 
+
+fname = f"4dvar_ens{ens}_bsize{bsize}_lint{lint}_lr{lr}"
+if os.path.exists(fname+".pth"):
+    print("file exists: ", fname)
+    exit()
+
+
+
 path = f"train_10step_ens{ens}_bsize{bsize}_initFalse_1.pth"
 
 np.random.seed(0)
@@ -34,7 +43,7 @@ k = 40
 f = 8.0
 dt = 0.01
 
-fact0 = 1.0
+fact0 = 0.1
 
 gfact = ( 1.0 + math.sqrt(5) ) * 0.5
 gfact1 = gfact + 1.0
@@ -45,7 +54,7 @@ nt = 50
 int_obs = 5
 nobs = int(nt/int_obs) + 1
 
-nstep = 1000
+nstep = 10000
 
 
 
@@ -84,7 +93,7 @@ def min_exp(x0, dldx, fact, l, met):
             f[2] = f[1]
             f[1] = ( f[1] - f[0] ) / gfact1
             if f[1] < 1e-5:
-                #print("why???")
+                #print("too small")
                 return [f[2], ll[2]]
             x = x0 - dldx * f[1]
             ll[1] = met(x)
@@ -204,8 +213,9 @@ xt_obs2 = torch.from_numpy(xt_obs.astype(rp)).to(device)
 fact = fact0
 
 
-cost_sur = np.empty(nstep)
-cost_phy = np.empty(nstep)
+cost_sur = np.full(nstep, 999.0, dtype=np.float32)
+cost_phy = np.full(nstep, 999.0, dtype=np.float32)
+cost_sur2 = np.full(nstep, 999.0, dtype=np.float32)
 
 
 
@@ -227,25 +237,27 @@ for m in range(nstep):
     dldx = x0.grad
 
     cost = cost.item()
-    if math.isnan(cost):
+    if math.isnan(cost) or cost > 10.0:
         break
 
     cost_sur[m] = cost / (nobs-1)
     cost_phy[m] = phy(x0[0,:].to("cpu").detach().numpy()) / (nobs-1)
 
-    if m==0 or (m+1)%20 == 0:
+    if m==0 or (m+1)%50 == 0:
         print( f"[%04d]: %e, %e"%(m+1, cost_sur[m], cost_phy[m]) )
 
     with torch.no_grad():
-        fact, _ = min_exp(x0, dldx, fact, cost, sur)
+        fact, cost = min_exp(x0, dldx, fact, cost, sur)
         #print(fact)
         x = x0 - dldx * fact
+        cost_sur2[m] = cost / (nobs-1)
 
     x = x.detach()
-    fact = max(fact * gfact, 0.1)
+    fact = max(fact * gfact, 1e-4)
 
     # update surrogate model
     if (m+1)%lint == 0:
+        fact = fact0
         obs = np.zeros([nobs,k])
         x1 = x[0,:].to("cpu").numpy()
         obs[0,:] = x1
@@ -271,13 +283,12 @@ for m in range(nstep):
 
 
 
-fname = f"4dvar_ens{ens}_bsize{bsize}_lint{lint}_lr{lr}"
 path = fname+".pth"
 state = {
     'net': net.state_dict(),
 }
 torch.save(state, path)
-np.savez(fname, cost_sur, cost_phy)
+np.savez(fname, cost_sur, cost_phy, x.detach().to("cpu").numpy(), cost_sur2)
 
 
 exit()

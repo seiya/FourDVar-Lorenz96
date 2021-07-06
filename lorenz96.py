@@ -80,10 +80,11 @@ if __name__ == '__main__':
 
     nt = 100
 #    nt = 400
+#    nt = 1000
 
     model = Lorenz96(k, f, dt)
     x0 = model.init(f, 0.01)
-#    x0 = model.init(f, 0.01, nspin=500)
+#    x0 = model.init(f, 0.01, nspin=5000)
 
     xa = np.zeros([nt+1,k])
     x = x0
