@@ -16,14 +16,14 @@ import net
 
 
 import sys
+import re
 
 
 args = sys.argv
 
 
-path = "./train_1step_ens100_bsize1000" if len(args)==1 else args[1]
+path = "./train_1step_ens800_bsize4000" if len(args)==1 else args[1]
 path = path + ".pth"
-
 
 
 if not torch.cuda.is_available():
@@ -133,7 +133,11 @@ error2 = error2 * error[1] / error2[0]
 print(error)
 print(error2)
 
-
+pat = r"train_(.+).pth"
+res = re.search(pat, path)
+fname = "run_err_" + res.group(1)
+print(fname)
+np.savez(fname, error)
 
 import matplotlib.pyplot as plt
 xx = np.linspace(0, dt*int_obs*(nobs-1), nobs)
