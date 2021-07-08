@@ -49,24 +49,9 @@ args = sys.argv
 argn = len(args)
 
 ndata_t = int(args[1]) if argn>1 else 100
-#ndata_t = 800
-#ndata_t = 400
-#ndata_t = 200
-#ndata_t = 100
-#ndata_t = 20
-#ndata_t = 10
-#ndata_t = 5
-#ndata_t = 1
-
 batch_size_t = int(args[2]) if argn>2 else 100
-#batch_size_t = ndata_t * (nobs-1)
-#batch_size_t = 16000
-#batch_size_t = 8000
-#batch_size_t = 4000
-#batch_size_t = 2000
-#batch_size_t = 400
-#batch_size_t = 200
-#batch_size_t = 100
+nspin = int(args[3]) if argn>3 else 100
+
 
 if batch_size_t > ndata_t * (nobs-1):
     batch_size_t = ndata_t * (nobs-1)
@@ -110,7 +95,7 @@ data_t = DataSet(ndata_t, nobs, k)
 for m in range(ndata_t):
     x = x0 + np.random.randn(k) * sigma
     # spinup
-    for n in range(100):
+    for n in range(nspin):
         x = model.forward(x)
 
     data_t.push(m,0,x)
@@ -126,7 +111,7 @@ data_e = DataSet(ndata_e, nobs, k)
 for m in range(ndata_e):
     x = x0 + np.random.randn(k) * sigma
     # spinup
-    for n in range(100):
+    for n in range(nspin):
         x = model.forward(x)
     data_e.push(m,0,x)
     for n in range(nt):
@@ -232,8 +217,9 @@ print(f"elapsed time: %d sec"%(time.time() - start))
 
 
 fname = f"train_1step_ens{ndata_t}_bsize{batch_size_t}"
+if nspin != 100:
+    fname = fname + f"_nspin{nspin}"
 
-#path = "./perfect_1step.pth"
 path = fname+".pth"
 torch.save(state, path)
 

@@ -79,8 +79,10 @@ if __name__ == '__main__':
     dt = 0.01
 
     nt = 100
-#    nt = 400
 #    nt = 1000
+
+    nspin = 100
+#    nspin = 1000
 
     model = Lorenz96(k, f, dt)
     x0 = model.init(f, 0.01)
@@ -90,7 +92,7 @@ if __name__ == '__main__':
     x = x0
 
     # spinup
-    for n in range(100):
+    for n in range(nspin):
         x = model.forward(x)
     xa[0,:] = x
     for n in range(nt):
@@ -113,7 +115,7 @@ if __name__ == '__main__':
         y = x0 + np.random.randn(k) * e0
 
         # spinup
-        for n in range(100):
+        for n in range(nspin):
             y = model.forward(y)
         err[0,l] = ( ( y - xa[0,:] )**2 ).mean()
         for n in range(nt):
@@ -124,6 +126,9 @@ if __name__ == '__main__':
     err = err.mean(axis=1)
 
     print(err.min(), err.max())
+
+    np.savez("lorenz96", err)
+
 
     plt.plot(err)
     ax = plt.gca()

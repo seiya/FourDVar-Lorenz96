@@ -60,7 +60,7 @@ def average_loss(loss, size):
 
 
 
-def training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e, batch_size_t, init, cp, double, debug, fix):
+def training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e, batch_size_t, init, cp, double, debug, fix, nspin):
 
 
     if debug:
@@ -76,11 +76,18 @@ def training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e
     #path_net = "./train_1step_ens400_bsize4000.pth"
 
     fname_pre = f"train_10step_ens{ndata_t}_bsize{batch_size_t}_init{init}"
+    if nspin != 100:
+        fname_pre = fname_pre + f"_nspin{nspin}"
+
+
     if cp > 1:
         path_net = fname_pre + f"_{cp-1}.pth"
     else:
         bs = {50: 125, 100: 250, 200: 2000, 400: 4000, 800: 4000}[ndata_t]
-        path_net = f"./train_1step_ens{ndata_t}_bsize{bs}.pth"
+        if nspin == 100:
+            path_net = f"./train_1step_ens{ndata_t}_bsize{bs}.pth"
+        else:
+            path_net = f"./train_1step_ens{ndata_t}_bsize{bs}_nspin{nspin}.pth"
 
 
     if myrank==0:
@@ -90,8 +97,7 @@ def training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e
         print(f"init is {init}")
         print(f"checkpoint count is {cp}")
         print(f"rank_size is {rank_size}")
-
-
+        print(f"nspin is {nspin}")
 
 
 
@@ -99,7 +105,6 @@ def training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e
         fname = "test"
     else:
         fname = fname_pre + f"_{cp}"
-
 
 
     max_norm = 0.01
@@ -372,7 +377,7 @@ def training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e
 
 
 
-def init_process(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e, batch_size_t, init, cp, double, debug, fix):
+def init_process(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e, batch_size_t, init, cp, double, debug, fix, nspin):
     os.environ["MASTER_ADDR"] = "127.0.0.1"
     port = batch_size_t + ndata_t + 10000
     if init:
@@ -383,7 +388,7 @@ def init_process(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, nda
     #backend = "gloo"
     backend = "nccl"
     dist.init_process_group(backend, rank=myrank, world_size=rank_size)
-    training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e, batch_size_t, init, cp, double, debug, fix)
+    training(myrank, rank_size, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e, batch_size_t, init, cp, double, debug, fix, nspin)
     dist.destroy_process_group()
 
 
@@ -395,6 +400,7 @@ if __name__ == "__main__":
     parser.add_argument("ndata", type=int)
     parser.add_argument("batch_size", type=int)
     parser.add_argument("init")
+    parser.add_argument("--nspin", type=int, default=100)
     parser.add_argument("--checkpoint", type=int, default=1)
     parser.add_argument("-d", "--debug", action="store_true")
     parser.add_argument("-f", "--fix", action="store_true")
@@ -402,6 +408,7 @@ if __name__ == "__main__":
     ndata_t = args.ndata
     batch_size_t = args.batch_size
     init = args.init == "True"
+    nspin = args.nspin
     cp = args.checkpoint
     debug = args.debug
     fix = args.fix
@@ -462,7 +469,7 @@ if __name__ == "__main__":
     for m in range(ndata_t):
         x = x0 + np.random.randn(k) * sigma
         # spinup
-        for n in range(100):
+        for n in range(nspin):
             x = model.forward(x)
 
         data_t[m,0,:] = x
@@ -481,7 +488,7 @@ if __name__ == "__main__":
     for m in range(ndata_e):
         x = x0 + np.random.randn(k) * sigma
         # spinup
-        for n in range(100):
+        for n in range(nspin):
             x = model.forward(x)
 
         data_e[m,0,:] = x
@@ -497,7 +504,7 @@ if __name__ == "__main__":
     if rank_size == 1:
         data_t = DataSet(data_t, ndata_t, nobs, nobs2, k)
         data_e = DataSet(data_e, ndata_e, nobs, nobs2, k)
-        training(0, 1, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e, batch_size_t, init, cp, double, debug, fix)
+        training(0, 1, k, nobs, nobs2, data_t, data_e, ndata_t, ndata_e, batch_size_t, init, cp, double, debug, fix, nspin)
 
     else:
 
@@ -523,7 +530,7 @@ if __name__ == "__main__":
             data_ts = DataSet(data_t[lt*myrank:lt*(myrank+1)], lt, nobs, nobs2, k)
             data_es = DataSet(data_e[le*myrank:le*(myrank+1)], le, nobs, nobs2, k)
 
-            p = mp.Process(target=init_process, args=(myrank, rank_size, k, nobs, nobs2, data_ts, data_es, ndata_t, ndata_e, batch_size_t, init, cp, double, debug, fix))
+            p = mp.Process(target=init_process, args=(myrank, rank_size, k, nobs, nobs2, data_ts, data_es, ndata_t, ndata_e, batch_size_t, init, cp, double, debug, fix, nspin))
             p.start()
             processes.append(p)
 
