@@ -15,7 +15,7 @@ ens = 400
 bsize = 4400
 lint = 10
 
-fname = args[1] if argn>1 else f"4dvar_ens{ens}_bsize{bsize}_l{lint}"
+fname = args[1] if argn>1 else f"4dvar_ens{ens}_bsize{bsize}_lint{lint}_lr1e-05"
 nstep = int(args[2]) if argn>2 else -1
 
 

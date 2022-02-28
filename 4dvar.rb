@@ -1,11 +1,13 @@
+# coding: utf-8
 require "numru/dcl"
 require "npy"
 include NumRu
 
 
 ens = [50, 100, 200, 400, 800]
-li  = [1, 3, 10, 30, 100, 300]
+li  = [1, 3, 10, 30, 100, 300, 10000]
 lr = %w(0.0001 3e-05 1e-05)
+
 
 
 lmin = {}
@@ -18,7 +20,7 @@ ens.each do |en|
   li.each do |k|
 
     lr.each do |l|
-      f = "4dvar_ens#{en}_bsize#{en*11}_lint#{k}_lr#{l}.npz"
+      f = "data/4dvar_ens#{en}_bsize#{en*11}_lint#{k}_lr#{l}.npz"
       npz = Npy.load_npz(f)
       l_e = npz['arr_0']
       l_p = npz['arr_1']
@@ -42,7 +44,8 @@ x = NArray.sint(nstep).indgen(1)
 iws = ARGV.delete("-pdf") ? 2 : 1
 #iws=1
 DCL.swcset("fname", "4dvar")
-DCL.gropn(-iws)
+#DCL.gropn(-iws)
+DCL.gropn(iws)
 DCL.sglset("lfull", true)
 DCL.sglset("lclip", true)
 DCL.swlset("lsysfnt", true)
@@ -52,21 +55,31 @@ vxmin0 = 0.09
 
 
 
-color = [1, 2, 4, 78, 7]
+color = [
+  [1, 2, 4, 78, 7],
+  {1=>1, 3=>2, 10=>10, 30=>3, 100=>78, 300=>4, 10000=>9},
+]
 
 label = "a".ord
 [
   [[50, 200, 800], [10]],
-  [[200], [1, 10, 100]],
+#  [[200], [1, 10, 100]],
+  [[200], [1, 10, 100, 300]],
 #  [[100, 200, 400], [10]]
 ].each_with_index do |ary, n|
   e = ary[0]
   l = ary[1]
 
-  vxmin = vxmin0 + 0.325 * n
-  vxmax = vxmin + 0.285
-  vymin = 0.552
-  vymax = 0.952
+  vxmin = vxmin0 + 0.46 * n
+  vxmax = vxmin + 0.425
+  vymin = 0.075
+  vymax = 0.68
+
+
+#  vxmin = vxmin0 + 0.325 * n
+#  vxmax = vxmin + 0.285
+#  vymin = 0.552
+#  vymax = 0.952
 
   n==0 ? DCL.grfrm : DCL.grfig
   DCL.grsvpt(vxmin, vxmax, vymin, vymax)
@@ -85,24 +98,27 @@ label = "a".ord
       p [en,k]
       y_e = NArray.to_na(cost_e[en][k].to_binary, "sfloat")
       y_p = NArray.to_na(cost_p[en][k].to_binary, "sfloat")
-      DCL.sgplzu(x, y_e, 3, color[m]*10+3)
-      DCL.sgplzu(x, y_p, 1, color[m]*10+3)
+      col = n==0 ? color[n][m] : color[n][k]
+      DCL.sgplzu(x, y_e, 3, col*10+3)
+      DCL.sgplzu(x, y_p, 1, col*10+3)
       m += 1
     end
   end
   [e,l][n].each_with_index do |z,m|
     vy = vymax-0.03-0.02*m
-    DCL.sgplzr([vxmax-0.15,vxmax-0.1],[vy]*2, 1, color[m]*10+3)
-    DCL.sgtxzr(vxmax-0.09, vy, ["M","K"][n] + "=#{z}", 0.015, 0, -1, 3)
+    col = n==0 ? color[n][m] : color[n][z]
+    DCL.sgplzr([vxmax-0.15,vxmax-0.1],[vy]*2, 1, col*10+3)
+    DCL.sgtxzr(vxmax-0.09, vy, ["M","K"][n] + "=#{n==1 && z==10000 ? "∞" : z}", 0.015, 0, -1, 3)
+  end
+  2.times do |m|
+    vy = vymax - 0.05 - 0.02 * [e,l][n].length - 0.02 * m
+    DCL.sgplzr([vxmax-0.15,vxmax-0.1],[vy]*2, m*2+1, 3)
+    DCL.sgtxzr(vxmax-0.09, vy, ['J\_p','J\_s'][m], 0.015, 0, -1, 3)
   end
 end
 
 
-
-ens = [50, 100, 200, 400, 800]
-li  = [1, 3, 10, 30, 100, 300]
-lr = %w(0.0001 3e-05 1e-05)
-
+=begin
 
 nitr = {}
 ens.each do |en|
@@ -111,7 +127,7 @@ ens.each do |en|
     nitr[en][k] = []
 
     lr.each do |l|
-      f = "4dvar_ens#{en}_bsize#{en*11}_lint#{k}_lr#{l}.npz"
+      f = "data/4dvar_ens#{en}_bsize#{en*11}_lint#{k}_lr#{l}.npz"
       npz = Npy.load_npz(f)
       l_e = npz['arr_1']
       idx = l_e.le(1e-3)
@@ -129,7 +145,6 @@ end
 
 
 mark = { 50=>2, 100=>3, 200=>4, 400=>5, 800=>7 }
-color = {1=>1, 3=>2, 10=>3, 30=>4, 100=>78, 300=>7}
 
 2.times do |n|
 
@@ -149,13 +164,20 @@ color = {1=>1, 3=>2, 10=>3, 30=>4, 100=>78, 300=>7}
   DCL.usdaxs
   DCL.uxsttl("b", ["ensemble size", "update interval"][n], 0)
   DCL.uysttl("l", "iteration", 0) if n==0
+  DCL.sgtxzr(vxmax, vymin-0.015, "∞", 0.02, 0, -1, 3) if n==1
   DCL.sgtxzr(vxmin, vymax+0.03, "(#{(label+n+2).chr})", 0.02, 0, -1, 3)
   DCL.swlset("lsysfnt", false)
   ens.each do |en|
     li.each do |k|
       x = n==0 ? en : k
       if nitr[en][k] < 10000
-        DCL.sgpmzu([x], [nitr[en][k]], mark[en], color[k]*10+3, 0.018)
+        if n==1 && k==10000
+          DCL.sglset("lclip", false)
+          DCL.sgpmzu([xmax*1.3], [nitr[en][k]], mark[en], color[1][k]*10+3, 0.018)
+          DCL.sglset("lclip", true)
+        else
+          DCL.sgpmzu([x], [nitr[en][k]], mark[en], color[1][k]*10+3, 0.018)
+        end
       end
     end
   end
@@ -163,7 +185,7 @@ color = {1=>1, 3=>2, 10=>3, 30=>4, 100=>78, 300=>7}
 
 end
 
-
+=end
 
 
 DCL.grcls
