@@ -14,6 +14,7 @@ import net
 import sys
 import os
 import math
+import random
 
 
 args = sys.argv
@@ -24,9 +25,10 @@ bsize = int(args[2]) if argn>2 else 4400
 lint = int(args[3]) if argn>3 else 10
 lr = float(args[4]) if argn>4 else 0.0001
 cuda = int(args[5]) if argn>5 else None
+seed = int(args[6]) if argn>6 else 100
 
 
-fname = f"data/4dvar_ens{ens}_bsize{bsize}_lint{lint}_lr{lr}"
+fname = f"data/4dvar_err_ens{ens}_bsize{bsize}_lint{lint}_lr{lr}_seed{seed}"
 if os.path.exists(fname+".pth"):
     print("file exists: ", fname)
     exit()
@@ -35,6 +37,7 @@ if os.path.exists(fname+".pth"):
 
 path = f"data/train_10step_ens{ens}_bsize{bsize}_initFalse_1.pth"
 
+random.seed(0)
 np.random.seed(0)
 torch.manual_seed(0)
 
@@ -43,7 +46,7 @@ k = 40
 f = 8.0
 dt = 0.01
 
-fact0 = 0.1
+fact0 = 1.0
 
 gfact = ( 1.0 + math.sqrt(5) ) * 0.5
 gfact1 = gfact + 1.0
@@ -54,38 +57,60 @@ nt = 50
 int_obs = 5
 nobs = int(nt/int_obs) + 1
 
-nstep = 10000
+sigma = 0.1
+obs_sigma = 0.1
+
+#nstep = 10000
+nstep = 1000
+int_out = 10
 
 
 
 double = False
 #double = True
 
-def phy(x):
-    l = 0.0
+
+
+nobsloc = 10
+l = list(range(k))
+idx = random.sample(l,nobsloc)
+idx.sort()
+print("obsloc:", idx)
+
+def phy(x, guess):
+    xx = x - guess[0,:]
+    binvx = torch.mv(Binv, xx)
+    l = (xx*binvx).sum() * 0.5
+    #l = 0.0
     for n in range(nt):
         x = model.forward(x)
         if (n+1)%int_obs == 0:
-            diff = x - xt_obs[(n+1)//int_obs,:]
-            l += (diff**2).sum() / k
+            diff = x[idx] - xt_obs[(n+1)//int_obs,idx]
+            l += (diff**2).sum() * Rinv * 0.5
+            #l += (diff**2).sum() / nobsloc
     return l
 
-def sur(x):
-    l = 0.0
+def sur(x, guess):
+    xx = x[0,:] - guess[0,:]
+    binvx = torch.mv(Binv, xx)
+    l = (xx*binvx).sum() * 0.5
+    #l = 0.0
     with torch.no_grad():
         for n in range(nobs-1):
             x = net(x)
-            diff = x - xt_obs2[n+1,:]
-            l += (diff**2).sum() / k
+            diff = x[:,idx] - xt_obs[n+1,idx]
+            l += (diff**2).sum() * Rinv * 0.5
+            #l += (diff**2).sum() / nobsloc
     return l.item()
 
 
-def min_exp(x0, dldx, fact, l, met):
+def min_exp(x0, dldx, fact, l, met, guess):
+    fact = min(fact, 1.0/abs(dldx).max())
     f = [0.0, fact/gfact1, fact]
     ll = [l, 0.0, 0.0]
     for i in range(2):
         x = x0 - dldx * f[i+1]
-        ll[i+1] = met(x)
+        ll[i+1] = met(x, guess)
     #print(f,ll)
     if ll[0] < ll[1] and ll[0] < ll[2]:
         for i in range(20):
@@ -96,7 +121,7 @@ def min_exp(x0, dldx, fact, l, met):
                 #print("too small")
                 return [f[2], ll[2]]
             x = x0 - dldx * f[1]
-            ll[1] = met(x)
+            ll[1] = met(x, guess)
             if ll[1] < ll[0]:
                 break
             #print(f,ll)
@@ -111,7 +136,7 @@ def min_exp(x0, dldx, fact, l, met):
             f[1] = f[2]
             f[2] = f[1] * gfact1
             x = x0 - dldx * f[2]
-            ll[2] = met(x)
+            ll[2] = met(x, guess)
             if ll[2] > ll[1]:
                 break
     if ll[2] < ll[1] and ll[2] < ll[0]:
@@ -122,7 +147,7 @@ def min_exp(x0, dldx, fact, l, met):
         if f[1] - f[0] > f[2] - f[1]:
             ff = f[1] - ( f[2] - f[1] ) / gfact
             x = x0 - dldx * ff
-            lll = met(x)
+            lll = met(x, guess)
             if lll > ll[1]:
                 f[0] = ff
                 ll[0] = lll
@@ -136,7 +161,7 @@ def min_exp(x0, dldx, fact, l, met):
         else:
             ff = f[1] + ( f[1] - f[0] ) / gfact
             x = x0 - dldx * ff
-            lll = met(x)
+            lll = met(x, guess)
             if lll > ll[1]:
                 f[2] = ff
                 ll[2] = lll
@@ -156,14 +181,16 @@ def min_exp(x0, dldx, fact, l, met):
 model = lorenz96.Lorenz96(k, f, dt)
 x0 = model.init(f, 0.01)
 
-np.random.seed(100)
+np.random.seed(seed)
 
 xt = x0
-x = x0 + np.random.randn(k) * 1e-1
+x = x0 + np.random.randn(k) * sigma
 # spinup
 for n in range(100):
     xt = model.forward(xt)
     x = model.forward(x)
+
+x_true = xt
 
 
 xt_obs = np.zeros([nobs,k])
@@ -171,7 +198,7 @@ xt_obs[0,:] = xt
 for n in range(nt):
     xt = model.forward(xt)
     if (n+1)%int_obs == 0:
-        xt_obs[(n+1)//int_obs,:] = xt
+        xt_obs[(n+1)//int_obs,:] = xt + np.random.randn(k) * obs_sigma
 
 
 
@@ -207,8 +234,9 @@ else:
     rp = np.float32
     torch.set_default_tensor_type(torch.FloatTensor)
 
-xt_obs2 = torch.from_numpy(xt_obs.astype(rp)).to(device)
 
+xt_obs = torch.from_numpy(xt_obs.astype(rp)).to(device)
+x_true = torch.from_numpy(x_true.astype(rp)).to(device)
 
 fact = fact0
 
@@ -218,42 +246,64 @@ cost_phy = np.full(nstep, 999.0, dtype=np.float32)
 cost_sur2 = np.full(nstep, 999.0, dtype=np.float32)
 
 
+Rinv = 1.0 / obs_sigma**2
+npz = np.load("data/init_norm.npz")
+Binv = torch.from_numpy(npz['arr_1'].astype(rp)).to(device)
+
+
 
 x = torch.from_numpy(x.astype(rp)).reshape(1,k).to(device)
 
 x = x.detach()
+guess = x
+
+nout = nstep // int_out + 1
+x_out = np.empty([nout,k])
+x_out[0,:] = x[0,:].to("cpu").numpy()
+
 for m in range(nstep):
 
     #x = x.requires_grad_()
     x.requires_grad = True
     x0 = x
 
-    cost = 0.0
+    #cost = ( ( x[:,idx] - xt_obs[0:1,idx] )**2 ).sum() / nobsloc
+    #cost = 0.0
+    xx = x0 - guess
+    binvx = torch.mv(Binv, xx[0,:])
+    cost = (xx*binvx).sum() * 0.5
     for n in range(nobs-1):
         x = net(x)
-        cost += criterion(x, xt_obs2[n+1:n+2,:])
+        #cost += criterion(x[:,idx], xt_obs[n+1:n+2,idx])
+        cost += ( ( x[0,idx] - xt_obs[n+1,idx] )**2 ).sum() * ( Rinv * 0.5 )
 
     cost.backward()
     dldx = x0.grad
 
     cost = cost.item()
-    if math.isnan(cost) or cost > 10.0:
+    if math.isnan(cost):
         break
 
-    cost_sur[m] = cost / (nobs-1)
-    cost_phy[m] = phy(x0[0,:].to("cpu").detach().numpy()) / (nobs-1)
-
-    if m==0 or (m+1)%50 == 0:
-        print( f"[%04d]: %e, %e"%(m+1, cost_sur[m], cost_phy[m]) )
+    cost_sur[m] = cost
+    cost_phy[m] = phy(x0[0,:], guess).item()
 
     with torch.no_grad():
-        fact, cost = min_exp(x0, dldx, fact, cost, sur)
+        fact, cost = min_exp(x0, dldx, fact, cost, sur, guess)
         #print(fact)
         x = x0 - dldx * fact
-        cost_sur2[m] = cost / (nobs-1)
+        cost_sur2[m] = cost
 
     x = x.detach()
-    fact = max(fact * gfact, 1e-4)
+    fact = max(fact * gfact, fact0)
+
+
+    if m==0 or (m+1)%50 == 0:
+        norm = ( ( x0[0,:].detach() - x_true )**2 ).mean().item()
+        print( f"[%04d]: %e, %e, %e"%(m+1, cost_sur[m], cost_phy[m], norm) )
+
+    if (m+1)%int_out == 0:
+        x_out[(m+1)//int_out,:] = x[0,:].to("cpu").numpy()
+
 
     # update surrogate model
     if (m+1)%lint == 0:
@@ -288,7 +338,7 @@ state = {
     'net': net.state_dict(),
 }
 torch.save(state, path)
-np.savez(fname, cost_sur, cost_phy, x.detach().to("cpu").numpy(), cost_sur2)
+np.savez(fname, cost_sur, cost_phy, x.detach().to("cpu").numpy(), cost_sur2, x_out)
 
 
 exit()

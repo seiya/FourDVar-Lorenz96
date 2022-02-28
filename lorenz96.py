@@ -48,10 +48,13 @@ class Lorenz96:
         return dydx
 
     def adjoint(self, ddx, x):
+        d1 = self.__derivative(x)
+        x1 = x + d1 * ( self.dt * 0.5 )
+        d2 = self.__derivative(x1)
+        x2 = x + d2 * ( self.dt * 0.5 )
+        d3 = self.__derivative(x2)
+        x3 = x + d3 * self.dt
         # y = x + ( d1 + d2 * 2.0 + d3 * 2.0 + d4 ) * ( self.dt / 6.0 )
-        x1 = x + self.__derivative(x) * ( self.dt * 0.5 )
-        x2 = x + self.__derivative(x1) * ( self.dt * 0.5 )
-        x3 = x + self.__derivative(x2) * self.dt
         dydx = ddx
         d1 = ddx * ( self.dt / 6.0 )
         d2 = ddx * ( self.dt / 3.0 )
@@ -94,23 +97,19 @@ if __name__ == '__main__':
     # spinup
     for n in range(nspin):
         x = model.forward(x)
+    xt = x
     xa[0,:] = x
     for n in range(nt):
         x = model.forward(x)
         xa[n+1,:] = x
 
+
     import matplotlib.pyplot as plt
-
-#    plt.imshow(xa, aspect=k/nt)
-#    plt.colorbar()
-#    plt.show()
-
-
-#    np.random.seed(1)
 
     e0 = 1e-1
     ns = 1000
     err = np.zeros([nt+1,ns])
+
     for l in range(ns):
         y = x0 + np.random.randn(k) * e0
 
@@ -137,4 +136,3 @@ if __name__ == '__main__':
     plt.grid(which="both")
 
     plt.show()
-
